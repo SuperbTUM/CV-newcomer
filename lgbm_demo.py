@@ -1,3 +1,4 @@
+# reference: https://github.com/microsoft/LightGBM/blob/master/examples/python-guide/simple_example.py
 import lightgbm as lgb
 from sklearn.model_selection import GridSearchCV
 import pandas as pd
