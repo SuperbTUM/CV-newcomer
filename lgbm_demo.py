@@ -26,7 +26,7 @@ def build(t_data, t_label):
     num_leaves = 31
     max_depth = 6
     gbm = lgb.LGBMClassifier(boosting_type='gbdt',
-                             objective='regression',
+                             objective='classification',
                              learning_rate=learning_rate,
                              metrics={'l2', 'l1'},
                              num_leaves=num_leaves,
@@ -39,14 +39,23 @@ def build(t_data, t_label):
     step_for_depth = 2
 
     while step_for_depth <= 1 and step_for_leaves_num <= 1:
-        candidate = {'num_leaves': [num_leaves + step_for_leaves_num * i for i in range(-1, 2, 1)],
-                     'max_depth': [max_depth + step_for_depth * i for i in range(-1, 2, 1)]}
+        if step_for_depth <= 1:  # fixed max depth
+            candidate = {'num_leaves': [num_leaves + step_for_leaves_num * i for i in range(-1, 2, 1)],
+                         'max_depth': max_depth}
+        elif step_for_leaves_num <= 1:
+            candidate = {'num_leaves': num_leaves, 
+                         'max_depth': [max_depth + step_for_depth * i for i in range(-1, 2, 1)]}
+        else:
+            candidate = {'num_leaves': [num_leaves + step_for_leaves_num * i for i in range(-1, 2, 1)],
+                         'max_depth': [max_depth + step_for_depth * i for i in range(-1, 2, 1)]}
         gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=3)
         gsearch.fit(t_data, t_label)
         num_leaves = gsearch.best_params_['num_leaves']
         max_depth = gsearch.best_params_['max_depth']
-        step_for_depth = step_for_depth // 2
-        step_for_leaves_num = step_for_leaves_num // 2
+        if step_for_depth > 1:
+            step_for_depth = step_for_depth // 2
+        if step_for_leaves_num:
+            step_for_leaves_num = step_for_leaves_num // 2
 
     # second
     params_corr = {'boosting_type': 'gbdt',
