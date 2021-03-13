@@ -35,9 +35,19 @@ def build(t_data, t_label):
                              bagging_freq=5,
                              verbose=0,
                              max_depth=max_depth)
-    candidate = {'num_leaves': [20, 30, 40], 'max_depth': [4, 6, 8]}
-    gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=3)
-    gsearch.fit(t_data, t_label)
+    step_for_leaves_num = 10
+    step_for_depth = 2
+
+    while step_for_depth <= 1 and step_for_leaves_num <= 1:
+        candidate = {'num_leaves': [num_leaves + step_for_leaves_num * i for i in range(-1, 2, 1)],
+                     'max_depth': [max_depth + step_for_depth * i for i in range(-1, 2, 1)]}
+        gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=3)
+        gsearch.fit(t_data, t_label)
+        num_leaves = gsearch.best_params_['num_leaves']
+        max_depth = gsearch.best_params_['max_depth']
+        step_for_depth = step_for_depth // 2
+        step_for_leaves_num = step_for_leaves_num // 2
+
     # second
     params_corr = {'boosting_type': 'gbdt',
                    'objective': 'regression',
@@ -50,9 +60,13 @@ def build(t_data, t_label):
                    'verbose': 0,
                    'max_depth': gsearch.best_params_['max_depth']
                    }
-    candidate = {'learning_rate': [0.05, 0.1, 0.2]}
-    gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=3)
-    gsearch.fit(t_data, t_label)
+    step_for_learning_rate = 2
+    while step_for_learning_rate <= 0.1:
+        candidate = {'learning_rate': [learning_rate * (2 ** i) for i in range(-1, 2, 1)]}
+        gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=3)
+        gsearch.fit(t_data, t_label)
+        step_for_learning_rate = step_for_learning_rate / 2
+        learning_rate = gsearch.best_params_['learning_rate']
 
     params_corr['learning_rate'] = gsearch.best_params_['learning_rate']
     return params_corr
