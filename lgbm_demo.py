@@ -54,7 +54,7 @@ def build(t_data, t_label):
         max_depth = gsearch.best_params_['max_depth']
         if step_for_depth > 1:
             step_for_depth = step_for_depth // 2
-        if step_for_leaves_num:
+        if step_for_leaves_num > 1:
             step_for_leaves_num = step_for_leaves_num // 2
 
     # second
