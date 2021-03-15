@@ -15,29 +15,30 @@ warnings.filterwarnings('ignore')
 class lgbm_demo:
     def __init__(self, objective, file_path):
         self.objective = objective
-        self.fixed_params = {'metric': {'l2', 'l1'},
+        self.fixed_params = {'metric': 'binary_logloss',
                              'feature_fraction': 0.9,
                              'bagging_fraction': 0.8,
                              'bagging_freq': 5,
                              'verbose': 0}
-        train_path = file_path + '/train'
-        train_df = pd.read_csv(train_path, header=None, delimiter='\t')
+        train_path = file_path + '/train_final.csv'
+        train_df = pd.read_csv(train_path, header=0, delimiter=',')
+
         train_set, validate_set = train_test_split(train_df, test_size=0.2)
-        test_path = file_path + '/test'
-        test_df = pd.read_csv(test_path, header=None, delimiter='\t')
+        test_path = file_path + '/test_final.csv'
+        test_df = pd.read_csv(test_path, header=0, delimiter=',', index_col=0)
         # create train dataset
         train_set = np.array(train_set)
-        self.train_label = train_set[-1]  # This should be modified
-        self.train_data = np.delete(train_set, -1, axis=1)
+        self.train_label = train_set[:, 15]  # This should be modified
+        self.train_data = np.delete(train_set, 15, axis=1)
         self.train_dataset = lgb.Dataset(self.train_data, self.train_label)
         # create validation dataset
         validate_set = np.array(validate_set)
-        self.v_label = validate_set[-1]  # This should be modified
-        self.v_data = np.delete(validate_set, -1, axis=1)
+        self.v_label = validate_set[:, 15]  # This should be modified
+        self.v_data = np.delete(validate_set, 15, axis=1)
         self.v_dataset = lgb.Dataset(self.v_data, self.v_label, reference=self.train_dataset)
         # create test dataset
-        self.test_label = test_df[-1]  # This should be modified
-        self.test_data = test_df.drop(-1, axis=1)
+        self.test_label = test_df.loc[:, 'loan_status']  # This should be modified
+        self.test_data = test_df.drop('loan_status', axis=1)
 
     def build(self):
         def fn(params):
@@ -48,7 +49,7 @@ class lgbm_demo:
         # initial
         learning_rate = 0.05
         num_leaves = 31
-        max_depth = 6
+        max_depth = 10
         gbm = lgb.LGBMClassifier(boosting_type='gbdt',
                                  objective=self.objective,
                                  learning_rate=learning_rate,
@@ -62,14 +63,20 @@ class lgbm_demo:
 
         while step_for_depth <= 2 and step_for_leaves_num <= 5:
             if step_for_depth <= 2:  # fixed max depth
-                candidate = {'num_leaves': [num_leaves + step_for_leaves_num * i for i in range(-1, 2, 1)],
+                candidate_num_leaves = [min(2 ** max_depth - 1, num_leaves + step_for_leaves_num * i)
+                                        for i in range(-1, 2, 1)]
+                candidate = {'num_leaves': candidate_num_leaves,
                              'max_depth': max_depth}
             elif step_for_leaves_num <= 5:
+                candidate_max_depth = [max(np.sqrt(num_leaves + 1), max_depth + step_for_depth * i)
+                                       for i in range(-1, 2, 1)]
                 candidate = {'num_leaves': num_leaves,
-                             'max_depth': [max_depth + step_for_depth * i for i in range(-1, 2, 1)]}
+                             'max_depth': candidate_max_depth}
             else:
-                candidate = {'num_leaves': [num_leaves + step_for_leaves_num * i for i in range(-1, 2, 1)],
-                             'max_depth': [max_depth + step_for_depth * i for i in range(-1, 2, 1)]}
+                candidate_max_depth = [max_depth + step_for_depth * i for i in range(-1, 2, 1)]
+                candidate = {'num_leaves': [min(2 ** candidate_max_depth[i] - 1, num_leaves + step_for_leaves_num * i)
+                                            for i in range(-1, 2, 1)],
+                             'max_depth': candidate_max_depth}
             gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=3)
             gsearch.fit(self.train_data, self.train_label)
             num_leaves = gsearch.best_params_['num_leaves']
@@ -131,7 +138,7 @@ class lgbm_demo:
 
 
 if __name__ == '__main__':
-    file_path = ""
+    file_path = "./final/final"
     lgb_ = lgbm_demo('binary', file_path)
     params_corr = lgb_.build()
     params_corr.update(lgb_.fixed_params)
