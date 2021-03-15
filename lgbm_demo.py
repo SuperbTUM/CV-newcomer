@@ -44,7 +44,7 @@ class lgbm_demo:
         def fn(params):
             model = self.train({**self.fixed_params, **params})
             pred = model.predict(self.v_data, num_iteration=model.best_iteration).astype(int)
-            return 1 - roc_auc_score(pred, self.v_label)
+            return 1 - roc_auc_score(self.v_label, pred)
 
         # initial
         learning_rate = 0.05
@@ -85,10 +85,12 @@ class lgbm_demo:
                 step_for_depth = math.ceil(step_for_depth // 2)
             if step_for_leaves_num > 5:
                 step_for_leaves_num = step_for_leaves_num // 2
-
+        candidate_max_depth = [max_depth + step_for_depth * i for i in range(-1, 2, 1)]
         space_dtree = {
-            'num_leaves': hp.choice('num_leaves', [num_leaves + step_for_leaves_num * i for i in range(-1, 2, 1)]),
-            'max_depth': hp.choice('max_depth', [max_depth + step_for_depth * i for i in range(-1, 2, 1)])
+            'num_leaves': hp.choice('num_leaves',
+                                    [min(2 ** candidate_max_depth[i] - 1, num_leaves + step_for_leaves_num * i)
+                                    for i in range(-1, 2, 1)]),
+            'max_depth': hp.choice('max_depth', candidate_max_depth)
         }
         best1 = fmin(fn=fn, space=space_dtree, algo=tpe.suggest, max_evals=1000, trials=Trials(), verbose=True)
         # second
@@ -106,14 +108,16 @@ class lgbm_demo:
                                  n_estimators=100,
                                  n_jobs=1)
         step_for_learning_rate = 2
-        while step_for_learning_rate <= 0.1:
+        while step_for_learning_rate > 0.1:
             candidate = {'learning_rate': [learning_rate * (2 ** i) for i in range(-1, 2, 1)]}
             gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=3)
             gsearch.fit(self.train_data, self.train_label)
             step_for_learning_rate = step_for_learning_rate / 2
             learning_rate = gsearch.best_params_['learning_rate']
-
-        params_corr['learning_rate'] = gsearch.best_params_['learning_rate']
+        try:
+            params_corr['learning_rate'] = gsearch.best_params_['learning_rate']
+        except UnboundLocalError:
+            pass
         return params_corr
 
     def train(self, params):
