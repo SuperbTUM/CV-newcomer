@@ -26,19 +26,29 @@ class lgbm_demo:
                              'verbose': 0}
         train_path = file_path + '/train_final.csv'
         train_df = pd.read_csv(train_path, header=0, delimiter=',')
-
+        train_df = train_df.drop('continuous_funded_amnt_inv', axis=1)
+        for i in range(train_df.shape[0]):
+            train_df.iloc[i, 1] = max(train_df.iloc[i, 0], train_df.iloc[i, 1])
+            train_df.iloc[i, 4] = max(train_df.iloc[i, 3], train_df.iloc[i, 4])
+        train_df = train_df.fillna(0)
         train_set, validate_set = train_test_split(train_df, test_size=0.2)
         test_path = file_path + '/test_final.csv'
         test_df = pd.read_csv(test_path, header=0, delimiter=',')
+        test_df = test_df.drop('continuous_funded_amnt_inv', axis=1)
+        for i in range(test_df.shape[0]):
+            test_df.iloc[i, 1] = max(test_df.iloc[i, 0], test_df.iloc[i, 1])
+            test_df.iloc[i, 4] = max(test_df.iloc[i, 3], test_df.iloc[i, 4])
+        test_df = test_df.fillna(0)
+
         # create train dataset
         train_set = np.array(train_set)
-        self.train_label = train_set[:, 15]  # This should be modified
-        self.train_data = np.delete(train_set, 15, axis=1)
+        self.train_label = train_set[:, 14]  # This should be modified
+        self.train_data = np.delete(train_set, 14, axis=1)
         self.train_dataset = lgb.Dataset(self.train_data, self.train_label)
         # create validation dataset
         validate_set = np.array(validate_set)
-        self.v_label = validate_set[:, 15]  # This should be modified
-        self.v_data = np.delete(validate_set, 15, axis=1)
+        self.v_label = validate_set[:, 14]  # This should be modified
+        self.v_data = np.delete(validate_set, 14, axis=1)
         self.v_dataset = lgb.Dataset(self.v_data, self.v_label, reference=self.train_dataset)
         # create test dataset
         self.test_label = test_df.loc[:, 'loan_status']  # This should be modified
@@ -74,7 +84,7 @@ class lgbm_demo:
         print('Starting searching for best max depth & leave number......')
         candidate = {'max_depth': range(3, 10, 1),
                      'num_leaves': range(10, 100, 5)}
-        gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=5, n_jobs=-1)
+        gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='f1', cv=5, n_jobs=-1)
         gsearch.fit(self.train_data, self.train_label)
         max_depth = gsearch.best_params_['max_depth']
         num_leaves = min(2 ** max_depth - 1, gsearch.best_params_['num_leaves'])
@@ -103,7 +113,7 @@ class lgbm_demo:
         # second
         print('Starting searching for best number of estimators......')
         candidate = {'n_estimators': range(10, 120, 10)}
-        gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=5, n_jobs=-1)
+        gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='f1', cv=5, n_jobs=-1)
         gsearch.fit(self.train_data, self.train_label)
         n_estimators = gsearch.best_params_['n_estimators']
         logging.info('Best num of estimator ' + str(n_estimators))
@@ -118,8 +128,8 @@ class lgbm_demo:
         print('Starting searching for best learning rate......')
         step_for_learning_rate = 2
         while step_for_learning_rate > 0.05:
-            candidate = {'learning_rate': [learning_rate * (2 ** i) for i in range(-1, 2, 1)]}
-            gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=5, n_jobs=-1)
+            candidate = {'learning_rate': [learning_rate * (2 ** i) for i in range(-2, 3, 1)]}
+            gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='f1', cv=5, n_jobs=-1)
             gsearch.fit(self.train_data, self.train_label)
             step_for_learning_rate = step_for_learning_rate / 2
             learning_rate = gsearch.best_params_['learning_rate']
@@ -148,6 +158,7 @@ class lgbm_demo:
         print('Starting predicting...')
         # predict
         pred = gbm.predict(self.test_data, num_iteration=gbm.best_iteration_).astype(int)
+        print('Predicting completed!')
         return mean_squared_error(self.test_label, pred)
 
 
