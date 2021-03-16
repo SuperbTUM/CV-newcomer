@@ -58,17 +58,17 @@ class lgbm_demo:
                                  n_estimators=100,
                                  n_jobs=1)
         # first
-        step_for_leaves_num = 20
+        step_for_leaves_num = 10
         step_for_depth = 5
 
-        while step_for_depth <= 2 and step_for_leaves_num <= 5:
-            if step_for_depth <= 2:  # fixed max depth
+        while step_for_depth >= 2 and step_for_leaves_num >= 5:
+            if step_for_depth < 2:  # fixed max depth
                 candidate_num_leaves = [min(2 ** max_depth - 1, num_leaves + step_for_leaves_num * i)
                                         for i in range(-1, 2, 1)]
                 candidate = {'num_leaves': candidate_num_leaves,
                              'max_depth': max_depth}
-            elif step_for_leaves_num <= 5:
-                candidate_max_depth = [max(np.sqrt(num_leaves + 1), max_depth + step_for_depth * i)
+            elif step_for_leaves_num < 5:
+                candidate_max_depth = [max(math.ceil(np.sqrt(num_leaves + 1)), max_depth + step_for_depth * i)
                                        for i in range(-1, 2, 1)]
                 candidate = {'num_leaves': num_leaves,
                              'max_depth': candidate_max_depth}
@@ -81,18 +81,21 @@ class lgbm_demo:
             gsearch.fit(self.train_data, self.train_label)
             num_leaves = gsearch.best_params_['num_leaves']
             max_depth = gsearch.best_params_['max_depth']
-            if step_for_depth > 2:
+            if step_for_depth >= 2:
                 step_for_depth = math.ceil(step_for_depth // 2)
-            if step_for_leaves_num > 5:
+            if step_for_leaves_num >= 5:
                 step_for_leaves_num = step_for_leaves_num // 2
         candidate_max_depth = [max_depth + step_for_depth * i for i in range(-1, 2, 1)]
+        print(candidate_max_depth)
+        print([min(2 ** candidate_max_depth[i] - 1, num_leaves + step_for_leaves_num * i)
+                                    for i in range(-1, 2, 1)])
         space_dtree = {
             'num_leaves': hp.choice('num_leaves',
                                     [min(2 ** candidate_max_depth[i] - 1, num_leaves + step_for_leaves_num * i)
                                     for i in range(-1, 2, 1)]),
             'max_depth': hp.choice('max_depth', candidate_max_depth)
         }
-        best1 = fmin(fn=fn, space=space_dtree, algo=tpe.suggest, max_evals=1000, trials=Trials(), verbose=True)
+        best1 = fmin(fn=fn, space=space_dtree, algo=tpe.suggest, max_evals=100, trials=Trials(), verbose=True)
         # second
         params_corr = {'boosting_type': 'gbdt',
                        'objective': self.objective,
@@ -107,6 +110,7 @@ class lgbm_demo:
                                  max_depth=best1['max_depth'],
                                  n_estimators=100,
                                  n_jobs=1)
+        print(best1)
         step_for_learning_rate = 2
         while step_for_learning_rate > 0.1:
             candidate = {'learning_rate': [learning_rate * (2 ** i) for i in range(-1, 2, 1)]}
