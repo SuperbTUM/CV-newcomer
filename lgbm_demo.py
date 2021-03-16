@@ -138,7 +138,7 @@ class lgbm_demo:
         gbm = lgb.train(params,
                         self.train_dataset,
                         num_boost_round=20,
-                        valid_sets=self.v_dataset,
+                        valid_sets=[self.train_dataset, self.v_dataset],
                         early_stopping_rounds=5)
 
         print('Saving model...')
