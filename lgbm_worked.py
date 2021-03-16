@@ -73,7 +73,7 @@ class lgbm_demo:
         # first
         print('Starting searching for best max depth & leave number......')
         candidate = {'max_depth': range(3, 10, 1),
-                     'num_leaves': range(80, 100, 5)}
+                     'num_leaves': range(10, 100, 5)}
         gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=5, n_jobs=-1)
         gsearch.fit(self.train_data, self.train_label)
         max_depth = gsearch.best_params_['max_depth']
