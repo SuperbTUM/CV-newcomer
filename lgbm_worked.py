@@ -7,6 +7,7 @@ from hyperopt import hp, Trials, fmin, tpe
 from sklearn.metrics import roc_auc_score, mean_squared_error
 from sklearn.model_selection import train_test_split
 import logging
+import time
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -24,31 +25,39 @@ class lgbm_demo:
                              'bagging_fraction': 0.8,
                              'bagging_freq': 5,
                              'verbose': 0}
+        # train
         train_path = file_path + '/train_final.csv'
         train_df = pd.read_csv(train_path, header=0, delimiter=',')
-        train_df = train_df.drop('continuous_funded_amnt_inv', axis=1)
+        train_df = train_df.drop('continuous_dti_joint', axis=1)
         for i in range(train_df.shape[0]):
             train_df.iloc[i, 1] = max(train_df.iloc[i, 0], train_df.iloc[i, 1])
-            train_df.iloc[i, 4] = max(train_df.iloc[i, 3], train_df.iloc[i, 4])
+            # train_df.iloc[i, 4] = max(train_df.iloc[i, 3], train_df.iloc[i, 4])
         train_df = train_df.fillna(0)
+        # add feature
+        # ratio = installment / (annual_inc / 12)
+        train_df['payment_ratio'] = train_df['continuous_installment'] * 12\
+                                 / train_df['continuous_annual_inc']
         train_set, validate_set = train_test_split(train_df, test_size=0.2)
+        # test
         test_path = file_path + '/test_final.csv'
         test_df = pd.read_csv(test_path, header=0, delimiter=',')
-        test_df = test_df.drop('continuous_funded_amnt_inv', axis=1)
+        test_df = test_df.drop('continuous_dti_joint', axis=1)
         for i in range(test_df.shape[0]):
             test_df.iloc[i, 1] = max(test_df.iloc[i, 0], test_df.iloc[i, 1])
-            test_df.iloc[i, 4] = max(test_df.iloc[i, 3], test_df.iloc[i, 4])
+            # test_df.iloc[i, 4] = max(test_df.iloc[i, 3], test_df.iloc[i, 4])
         test_df = test_df.fillna(0)
-
+        test_df['payment_ratio'] = test_df['continuous_installment']\
+                                    / test_df['continuous_annual_inc'] * 12
         # create train dataset
+        target_col = 14
         train_set = np.array(train_set)
-        self.train_label = train_set[:, 14]  # This should be modified
-        self.train_data = np.delete(train_set, 14, axis=1)
+        self.train_label = train_set[:, target_col]  # This should be modified
+        self.train_data = np.delete(train_set, target_col, axis=1)
         self.train_dataset = lgb.Dataset(self.train_data, self.train_label)
         # create validation dataset
         validate_set = np.array(validate_set)
-        self.v_label = validate_set[:, 14]  # This should be modified
-        self.v_data = np.delete(validate_set, 14, axis=1)
+        self.v_label = validate_set[:, target_col]  # This should be modified
+        self.v_data = np.delete(validate_set, target_col, axis=1)
         self.v_dataset = lgb.Dataset(self.v_data, self.v_label, reference=self.train_dataset)
         # create test dataset
         self.test_label = test_df.loc[:, 'loan_status']  # This should be modified
@@ -163,11 +172,14 @@ class lgbm_demo:
 
 
 if __name__ == '__main__':
+    start = time.time()
     file_path = "./final"
     lgb_ = lgbm_demo('binary', file_path)
     gbm = lgb_.build()
     lgb_.fit(gbm)
     logging.info('Mean squared error is ' + str(lgb_.predict(gbm)))
+    end = time.time()
+    logging.info('Running time is ' + str(end - start) + ' seconds.')
     # gbm = lgb.LGBMClassifier(objective=lgb_.objective, num_leaves=31,
     #                          learning_rate=0.05, n_estimators=20)
     # gbm.fit(lgb_.train_data, lgb_.train_label,
