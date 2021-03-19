@@ -6,6 +6,7 @@ import numpy as np
 from hyperopt import hp, Trials, fmin, tpe
 from sklearn.metrics import roc_auc_score, mean_squared_error
 from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction import FeatureHasher
 import logging
 import time
 import warnings
@@ -28,28 +29,64 @@ class lgbm_demo:
         # train
         train_path = file_path + '/train_final.csv'
         train_df = pd.read_csv(train_path, header=0, delimiter=',')
-        train_df = train_df.drop('continuous_dti_joint', axis=1)
+        # train_df = train_df.drop('continuous_dti_joint', axis=1)
         for i in range(train_df.shape[0]):
             train_df.iloc[i, 1] = max(train_df.iloc[i, 0], train_df.iloc[i, 1])
-            # train_df.iloc[i, 4] = max(train_df.iloc[i, 3], train_df.iloc[i, 4])
+            train_df.iloc[i, 4] = max(train_df.iloc[i, 3], train_df.iloc[i, 4])
         train_df = train_df.fillna(0)
         # add feature
         # ratio = installment / (annual_inc / 12)
         train_df['payment_ratio'] = train_df['continuous_installment'] * 12\
                                  / train_df['continuous_annual_inc']
+
+        features = train_df.iloc[:, 21:70]
+        train_df = train_df.drop(labels=['discrete_addr_state_' + str(i) + '_one_hot' for i in range(1, 50)], axis=1)
+        features = np.array(features)
+        recover_features = []
+        for feature in features:
+            for i in range(len(feature)):
+                if feature[i] == 1:
+                    recover_features.append(i)
+                    break
+        recover_features = list(map(str, recover_features))
+        hashing = FeatureHasher(input_type='string', n_features=49)
+        matrix = hashing.transform(recover_features)
+        matrix = matrix.toarray()
+        cols = ['addr_state_feature_' + str(i) for i in range(1, 50)]
+        matrix = pd.DataFrame(matrix, columns=cols)
+        train_df = pd.concat([train_df, matrix], axis=1)
+
         train_set, validate_set = train_test_split(train_df, test_size=0.2)
         # test
         test_path = file_path + '/test_final.csv'
         test_df = pd.read_csv(test_path, header=0, delimiter=',')
-        test_df = test_df.drop('continuous_dti_joint', axis=1)
+        # test_df = test_df.drop('continuous_dti_joint', axis=1)
         for i in range(test_df.shape[0]):
             test_df.iloc[i, 1] = max(test_df.iloc[i, 0], test_df.iloc[i, 1])
-            # test_df.iloc[i, 4] = max(test_df.iloc[i, 3], test_df.iloc[i, 4])
+            test_df.iloc[i, 4] = max(test_df.iloc[i, 3], test_df.iloc[i, 4])
         test_df = test_df.fillna(0)
         test_df['payment_ratio'] = test_df['continuous_installment']\
                                     / test_df['continuous_annual_inc'] * 12
+
+        features = test_df.iloc[:, 21:70]
+        test_df = test_df.drop(labels=['discrete_addr_state_' + str(i) + '_one_hot' for i in range(1, 50)], axis=1)
+        features = np.array(features)
+        recover_features = []
+        for feature in features:
+            for i in range(len(feature)):
+                if feature[i] == 1:
+                    recover_features.append(i)
+                    break
+        recover_features = list(map(str, recover_features))
+        hashing = FeatureHasher(input_type='string', n_features=49)
+        matrix = hashing.transform(recover_features)
+        matrix = matrix.toarray()
+        cols = ['addr_state_feature_' + str(i) for i in range(1, 50)]
+        matrix = pd.DataFrame(matrix, columns=cols)
+        test_df = pd.concat([test_df, matrix], axis=1)
+
         # create train dataset
-        target_col = 14
+        target_col = 15
         train_set = np.array(train_set)
         self.train_label = train_set[:, target_col]  # This should be modified
         self.train_data = np.delete(train_set, target_col, axis=1)
