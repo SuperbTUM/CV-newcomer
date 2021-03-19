@@ -1,6 +1,6 @@
 # Assignment 3 说明
 
-在常规的lightgbm算法下，得到的模型主要参数为：
+在常规的lightgbm算法下，使用自动化调参，得到的预测结果为：
 
 | Best max depth | Best num of leaves | Best num of estimator | Best learning rate | Mean squared error | Running time             |
 | -------------- | ------------------ | --------------------- | ------------------ | ------------------ | ------------------------ |
@@ -20,8 +20,16 @@ $$
 
 
 
-删除特征`continuous_dti_joint`后，可以看到Mean squared error进一步下降。
+删除特征`continuous_dti_joint`后，可以看到Mean squared error进一步下降，耗时也大幅减少。
 
 | Best max depth | Best num of leaves | Best num of estimator | Best learning rate | Mean squared error | Running time              |
 | -------------- | ------------------ | --------------------- | ------------------ | ------------------ | ------------------------- |
 | 3              | 7                  | 110                   | 0.1                | 0.0819             | 73.64432835578918 seconds |
+
+
+
+额外的，提供一种新的思路：如果不对原数据集的特征进行删减，只是在增加新特征`payment_ratio`的前提下，将onehot编码重构为特征哈希，可以看到Mean squared error再进一步下降。
+
+| Best max depth | Best num of leaves | Best num of estimator | Best learning rate | Mean squared error | Running time              |
+| -------------- | ------------------ | --------------------- | ------------------ | ------------------ | ------------------------- |
+| 3              | 7                  | 110                   | 0.1                | 0.08174            | 93.75345778465271 seconds |
