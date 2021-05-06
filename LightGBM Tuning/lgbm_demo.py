@@ -4,7 +4,7 @@ from sklearn.model_selection import GridSearchCV
 import pandas as pd
 import numpy as np
 from hyperopt import hp, Trials, fmin, tpe
-from sklearn.metrics import roc_auc_score, mean_squared_error
+from sklearn.metrics import roc_auc_score, accuracy_score
 from sklearn.model_selection import train_test_split
 import logging
 import warnings
@@ -14,12 +14,13 @@ warnings.filterwarnings('ignore')
 
 class lgbm_demo:
     def __init__(self, objective, file_path):
+        super(lgbm_demo, self).__init__()
         logging.basicConfig(level=logging.INFO,
                             filename='info.log',
                             filemode='w',
                             format='%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s')
         self.objective = objective
-        self.fixed_params = {'metric': 'binary_error',
+        self.fixed_params = {'metric': 'binary_logloss',
                              'feature_fraction': 0.9,
                              'bagging_fraction': 0.8,
                              'bagging_freq': 5,
@@ -45,15 +46,15 @@ class lgbm_demo:
         self.test_data = test_df.drop('loan_status', axis=1)
 
     def build(self):
-        print("Starting building......")
+        print("Starting building...")
 
         def fn(params):
             model = self.train({**self.fixed_params, **params})
-            pred = model.predict(self.v_data, num_iteration=model.best_iteration).astype(int)
+            pred = self.predict(self.v_data, self.v_label, model) # ???
             return 1 - roc_auc_score(self.v_label, pred)
 
         # initial
-        print('Starting initialization......')
+        print('Starting initialization...')
         learning_rate = 0.05
         num_leaves = 31
         max_depth = 6
@@ -65,14 +66,14 @@ class lgbm_demo:
                                  max_depth=max_depth,
                                  n_estimators=n_estimators)
         # first
-        print('Starting searching for best max depth & leave number......')
+        print('Starting searching for best max depth & leave number...')
         candidate = {'max_depth': range(3, 10, 1),
                      'num_leaves': range(10, 100, 10)}
         gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=5, n_jobs=-1)
         gsearch.fit(self.train_data, self.train_label)
         num_leaves = gsearch.best_params_['num_leaves']
         max_depth = gsearch.best_params_['max_depth']
-        logging.info('Best max depth is ' + str(max_depth))
+        logging.info('Best max depth is %d' % max_depth)
         # sophisticated modification
         space_dtree = {
             'boosting_type': 'gbdt',
@@ -86,7 +87,7 @@ class lgbm_demo:
         }
         best1 = fmin(fn=fn, space=space_dtree, algo=tpe.suggest, max_evals=100, trials=Trials(), verbose=True)
         num_leaves = best1['num_leaves']
-        logging.info('Best num of leaves ' + str(num_leaves))
+        logging.info('Best num of leaves %d' % num_leaves)
         # update model
         gbm = lgb.LGBMClassifier(boosting_type='gbdt',
                                  objective=self.objective,
@@ -95,12 +96,12 @@ class lgbm_demo:
                                  max_depth=max_depth,
                                  n_estimators=n_estimators)
         # second
-        print('Starting searching for best number of estimators......')
+        print('Starting searching for best number of estimators...')
         candidate = {'n_estimators': range(50, 150, 10)}
         gsearch = GridSearchCV(gbm, param_grid=candidate, scoring='roc_auc', cv=5, n_jobs=-1)
         gsearch.fit(self.train_data, self.train_label)
         n_estimators = gsearch.best_params_['n_estimators']
-        logging.info('Best num of estimator ' + str(n_estimators))
+        logging.info('Best num of estimator %d' % n_estimators)
         # update model
         gbm = lgb.LGBMClassifier(boosting_type='gbdt',
                                  objective=self.objective,
@@ -109,7 +110,7 @@ class lgbm_demo:
                                  max_depth=max_depth,
                                  n_estimators=n_estimators)
         # third
-        print('Starting searching for best learning rate......')
+        print('Starting searching for best learning rate...')
         step_for_learning_rate = 2
         while step_for_learning_rate > 0.1:
             candidate = {'learning_rate': [learning_rate * (2 ** i) for i in range(-1, 2, 1)]}
@@ -117,7 +118,7 @@ class lgbm_demo:
             gsearch.fit(self.train_data, self.train_label)
             step_for_learning_rate = step_for_learning_rate / 2
             learning_rate = gsearch.best_params_['learning_rate']
-        logging.info('Best learning rate ' + str(learning_rate))
+        logging.info('Best learning rate %.3f' % learning_rate)
         params_corr = {'boosting_type': 'gbdt',
                        'objective': self.objective,
                        'learning_rate': learning_rate,
@@ -128,7 +129,7 @@ class lgbm_demo:
         try:
             params_corr['learning_rate'] = gsearch.best_params_['learning_rate']
         except Exception:
-            pass
+            warnings.warn('Learning rate not tuned.', RuntimeWarning)
         print('Building completed!')
         return params_corr
 
@@ -138,26 +139,26 @@ class lgbm_demo:
         gbm = lgb.train(params,
                         self.train_dataset,
                         num_boost_round=20,
-                        valid_sets=[self.train_dataset, self.v_dataset],
+                        valid_sets=self.v_dataset,
                         early_stopping_rounds=5)
 
-        print('Saving model...')
-        # save model to file
-        gbm.save_model('model.txt')
         return gbm
 
-    def predict(self, gbm):
+    def predict(self, data, label, gbm):
         print('Starting predicting...')
         # predict
-        pred = gbm.predict(self.test_data, num_iteration=gbm.best_iteration).astype(int)
-        return mean_squared_error(self.test_label, pred) ** 0.5
+        # if gbm comes from train, then prediction will be probability
+        # otherwise prediction will be pure classification
+        pred = gbm.predict(data, num_iteration=gbm.best_iteration)
+        pred = list(map(lambda x: 1 if x >= 0.5 else 0, pred))
+        logging.info('Accuracy score for final prediction is %.5f' % accuracy_score(label, pred))
+        return pred
 
 
 if __name__ == '__main__':
-    file_path = "./final"
+    file_path = "./final/final"
     lgb_ = lgbm_demo('binary', file_path)
     params_corr = lgb_.build()
     params_corr.update(lgb_.fixed_params)
     gbm = lgb_.train(params_corr)
-    # gbm = lgb.Booster(model_file='model.txt')
-    logging.info('Mean squared error is ' + str(lgb_.predict(gbm)))
+    final_pred = lgb_.predict(lgb_.test_data, lgb_.test_label, gbm)
