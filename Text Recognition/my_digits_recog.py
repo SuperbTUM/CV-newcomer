@@ -13,6 +13,7 @@ import numpy as np
 from torch import optim
 from tqdm import tqdm
 from torch.autograd import Variable
+import math
 
 epoch_count = 0
 acc_best = 0.
@@ -52,7 +53,7 @@ class TextDatasetWithBBox(Dataset):
 
     @staticmethod
     def _Resize(bbox):  # (left=x, top=y, height=h, width=w)
-        return tuple(map(int, (bbox[1], bbox[1] + bbox[2], bbox[0], bbox[0] + bbox[3])))
+        return math.floor(bbox[1]), math.ceil(bbox[1] + bbox[2]), math.floor(bbox[0]), math.ceil(bbox[0] + bbox[3])
 
     def __getitem__(self, idx):
         gt_label = self.data_label[idx]  # [1,9]
@@ -61,8 +62,8 @@ class TextDatasetWithBBox(Dataset):
         img_list = list()
         h, w = 0, 0
         for bb in bbox:
-            h, w = max(h, bb[2]), max(w, bb[3])
             bb_resize = self._Resize(bb)
+            h, w = max(h, bb_resize[1]-bb_resize[0]), max(w, bb_resize[3]-bb_resize[2])
             resized_img = img[bb_resize[0]:bb_resize[1], bb_resize[2]:bb_resize[3]]
             if resized_img.size == 0:
                 raise Exception('No image!')
@@ -319,10 +320,12 @@ if __name__ == '__main__':
             img_list = sample['img_list']
             network = Resnet50Mod(batch_size=batch_size, num_imgs=img_list.shape[1])
             optimizer, lr_scheduler, loss_function = load_ancillary_functions(network)
-            if cuda:
-                network = network.cuda()
             img_list = img_list.view(img_list.shape[0] * img_list.shape[1], img_list.shape[2], img_list.shape[3],
                                      img_list.shape[4])
+            if cuda:
+                network = network.cuda()
+                img_list = img_list.cuda()
+                sample['label'] = sample['label'].cuda()
             # label_list = sample['label'].view(sample['label'].shape[0] * sample['label'].shape[1], )
             optimizer.zero_grad()
             pred = network(img_list)
