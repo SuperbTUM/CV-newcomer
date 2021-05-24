@@ -14,6 +14,7 @@ from torch import optim
 from tqdm import tqdm
 from torch.autograd import Variable
 import math
+import gc
 
 epoch_count = 0
 acc_best = 0.
@@ -353,3 +354,7 @@ if __name__ == '__main__':
         if epoch_count > 20:
             break
         epoch_count += 1
+        if cuda:
+            gc.collect()
+            torch.cuda.empty_cache()
+            
