@@ -96,7 +96,7 @@ class Mish(nn.Module):
 
 
 class Resnet50Mod(nn.Module):
-    def __init__(self, batch_size=20, num_imgs=1):
+    def __init__(self, batch_size=20, num_imgs=6):
         super(Resnet50Mod, self).__init__()
         self.batch_size = batch_size
         self.num_imgs = num_imgs
@@ -237,11 +237,11 @@ def text_collate(batch):
     labels = list()
     isEnd = list()
     h, w = 0, 0
-    seq_len = 0
+    seq_len = 6
     # find size to be padded
     for sample in batch:
         h, w = int(max(h, sample['largest_size'][0])), int(max(w, sample['largest_size'][1]))
-        seq_len = max(seq_len, len(sample['img_list']))
+        # seq_len = max(seq_len, len(sample['img_list']))
 
     color = (255, 255, 255)
     all_black = np.zeros((3, h, w))
