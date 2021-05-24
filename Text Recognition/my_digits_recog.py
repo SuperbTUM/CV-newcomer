@@ -65,8 +65,6 @@ class TextDatasetWithBBox(Dataset):
             bb_resize = self._Resize(bb)
             h, w = max(h, bb_resize[1]-bb_resize[0]), max(w, bb_resize[3]-bb_resize[2])
             resized_img = img[bb_resize[0]:bb_resize[1], bb_resize[2]:bb_resize[3]]
-            if resized_img.size == 0:
-                raise Exception('No image!')
             img_list.append(resized_img)
         # for recognition of each number
         sample = {'img_list': img_list, 'label': gt_label, 'largest_size': (h, w),
@@ -76,12 +74,15 @@ class TextDatasetWithBBox(Dataset):
         return sample
 
 
-def pred_2_number(preds):
+def pred_2_number(preds, cuda):
     softmax = nn.Softmax(dim=1)
     preds = softmax(preds)
     res = list()
     for i in range(len(preds)):
-        res.append(np.argmax(preds[i].detach().numpy()))
+        if cuda:
+            res.append(np.argmax(preds[i].cpu().detach().numpy()))
+        else:
+            res.append(np.argmax(preds[i].detach().numpy()))
     return torch.Tensor(res)
 
 
@@ -181,11 +182,14 @@ class StepLR(object):
             param_group['lr'] = self.base_lrs[ids] * 0.8 ** (self.last_iter // self.step_size)
 
 
-def load_ancillary_functions(network, base_lr=1e-3, step_size=1000, max_iter=10000):
+def load_network(batch_size=20, base_lr=1e-3, step_size=1000, max_iter=10000, cuda=True):
+    network = Resnet50Mod(batch_size=batch_size)
+    if cuda:
+      network = network.cuda()
     optimizer = optim.Adam(network.parameters(), lr=base_lr, weight_decay=0.0001)
     lr_scheduler = StepLR(optimizer, step_size=step_size, max_iter=max_iter)
     loss_function = LabelSmoothing(0.2)
-    return optimizer, lr_scheduler, loss_function
+    return network, optimizer, lr_scheduler, loss_function
 
 
 def test(network, data_loader, cuda=True):
@@ -284,10 +288,13 @@ if __name__ == '__main__':
 
     train_dataset = TextDatasetWithBBox(train_json, train_path, isTrain=True)
     val_dataset = TextDatasetWithBBox(val_json, val_path, isTrain=False)
-    # cuda = True if torch.cuda.is_available() else False
-    # num_workers = 4 if cuda else 1
-    cuda = False
-    num_workers = 1
+
+    gpu = ''
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpu
+    cuda = True if gpu != '' else False
+    num_workers = 2 if cuda else 1
+    # cuda = False
+    # num_workers = 1
     batch_size = 20
 
     train_dl = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
@@ -297,7 +304,7 @@ if __name__ == '__main__':
 
     print("#********************************************# Building Dataset Completed!")
 
-    network = None
+    network, optimizer, lr_scheduler, loss_function = load_network(batch_size=batch_size, cuda=cuda)
     while True:
         print('#********************************************# Activating Training Process!')
         if (test_epoch is not None and epoch_count != 0 and epoch_count % test_epoch == 0) or (
@@ -318,8 +325,6 @@ if __name__ == '__main__':
         iterator = tqdm(train_dl)
         for sample in iterator:  # 输了一个batch进去
             img_list = sample['img_list']
-            network = Resnet50Mod(batch_size=batch_size, num_imgs=img_list.shape[1])
-            optimizer, lr_scheduler, loss_function = load_ancillary_functions(network)
             img_list = img_list.view(img_list.shape[0] * img_list.shape[1], img_list.shape[2], img_list.shape[3],
                                      img_list.shape[4])
             if cuda:
