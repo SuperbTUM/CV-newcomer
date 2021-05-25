@@ -248,10 +248,13 @@ def load_network(batch_size=20, base_lr=1e-3, step_size=1000, max_iter=10000, cu
     return network, optimizer, lr_scheduler, loss_function
 
 
-def test(network, data_loader, cuda=True):
+def test(network, dataset, cuda=True):
     count = 0
     tp = 0
-    iterator = tqdm(data_loader)
+    num_workers = 2 if cuda else 1
+    val_dl = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+                        collate_fn=text_collate)
+    iterator = tqdm(val_dl)
     for sample in iterator:
         imgs = sample["img_list"]  # (bs, num_img, c, h, w)
         imgs = imgs.view(imgs.shape[0] * imgs.shape[1], imgs.shape[2], imgs.shape[3], imgs.shape[4])
@@ -362,11 +365,6 @@ if __name__ == '__main__':
     # num_workers = 1
     batch_size = 10
 
-    train_dl = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
-                          collate_fn=text_collate)
-    val_dl = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
-                        collate_fn=text_collate)
-
     print("#********************************************# Building Dataset Completed!")
 
     network, optimizer, lr_scheduler, loss_function = load_network(batch_size=batch_size, cuda=cuda)
@@ -387,6 +385,8 @@ if __name__ == '__main__':
             print("acc: {}\tacc_best: {};".format(acc, acc_best))
 
         loss_mean = list()
+        train_dl = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
+                          collate_fn=text_collate)
         iterator = tqdm(train_dl)
         for sample in iterator:  # 输了一个batch进去
             img_list = sample['img_list']
