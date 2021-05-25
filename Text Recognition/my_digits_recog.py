@@ -68,11 +68,13 @@ class Normalization(object):
         self.std = std
 
     def __call__(self, sample):
+        norm_func = transforms.Normalize(self.mean, self.std)
         for i in range(len(sample['img_list'])):
             # for j in range(3):  # for colored image
             #     sample['img_list'][i][:,:,j] = np.array(list(map(lambda x: (x-self.mean[0])/self.std[0],
             #     sample['img_list'][i][:,:,j])))
-            sample['img_list'][i] = transforms.Normalize(self.mean, self.std)
+            sample['img_list'][i] = norm_func(torch.from_numpy(sample['img_list'][i].transpose(2, 0, 1)).float())
+            sample['img_list'][i] = sample['img_list'][i].numpy().transpose(1, 2, 0)
         return sample
 
 
