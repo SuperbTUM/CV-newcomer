@@ -13,6 +13,7 @@ import numpy as np
 from torch import optim
 from tqdm import tqdm
 from torch.autograd import Variable
+import torchvision.transforms as transforms
 import math
 import gc
 
@@ -21,6 +22,58 @@ acc_best = 0.
 test_init = None
 test_epoch = 1
 output_dir = './'
+
+
+class Rotation(object):
+    def __init__(self, angle=5, fill_value=0, p=0.5):
+        self.angle = angle
+        self.fill_value = fill_value
+        self.p = p
+
+    def __call__(self, sample):  # 传进来是一个img_list
+        if np.random.uniform(0.0, 1.0) < self.p:
+            return sample
+        ang_rot = np.random.uniform(self.angle) - self.angle / 2
+        for i in range(len(sample['img_list'])):
+            h, w, _ = sample["img_list"][i].shape
+            transform = cv2.getRotationMatrix2D((w / 2, h / 2), ang_rot, 1)
+            sample["img_list"][i] = cv2.warpAffine(sample["img_list"][i], transform, (w, h),
+                                                   borderValue=self.fill_value)
+        return sample
+
+
+class Translation(object):
+    def __init__(self, fill_value=0, p=0.5):
+        self.fill_value = fill_value
+        self.p = p
+
+    def __call__(self, sample):
+
+        if np.random.uniform(0.0, 1.0) < self.p:
+            return sample
+        for i in range(len(sample['img_list'])):
+            h, w, _ = sample["img_list"][i].shape
+            trans_range = (w / 10, h / 10)
+            tr_x = trans_range[0] * np.random.uniform() - trans_range[0] / 2
+            tr_y = trans_range[1] * np.random.uniform() - trans_range[1] / 2
+            transform = np.float32([[1, 0, tr_x], [0, 1, tr_y]])
+            sample["img_list"][i] = cv2.warpAffine(sample["img_list"][i], transform, (w, h),
+                                                   borderValue=self.fill_value)
+        return sample
+
+
+class Normalization(object):
+    def __init__(self, mean=(0, 0, 0), std=(255, 255, 255)):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, sample):
+        for i in range(len(sample['img_list'])):
+            # for j in range(3):  # for colored image
+            #     sample['img_list'][i][:,:,j] = np.array(list(map(lambda x: (x-self.mean[0])/self.std[0],
+            #     sample['img_list'][i][:,:,j])))
+            sample['img_list'][i] = transforms.Normalize(self.mean, self.std)
+        return sample
 
 
 # sample: tuple (x:left, y:top, h:height, w:width)
@@ -75,7 +128,7 @@ class TextDatasetWithBBox(Dataset):
         return sample
 
 
-def pred_2_number(preds, cuda):
+def pred_2_number(preds, cuda=True):
     softmax = nn.Softmax(dim=1)
     preds = softmax(preds)
     res = list()
@@ -108,8 +161,8 @@ class Resnet50Mod(nn.Module):
         # ave pooling layer
         # make sure the input dim would be ...*2048
         self.hidden_layer = nn.Linear(2048, 128)
-        # self.dropout = nn.Dropout(0.2)
-        self.dropout = DropBlock2D(block_size=3, drop_prob=0.2)
+        self.dropout = nn.Dropout(0.1)
+        # self.dropout = DropBlock2D(block_size=3, drop_prob=0.2)
         # make sure the output dim would be ...*11
         self.output = nn.Linear(128, 11)  # 11 or 10, 1 * 11
         # self.softmax = nn.Softmax(dim=1)
@@ -206,8 +259,7 @@ def test(network, data_loader, cuda=True):
         if cuda:
             img = img.cuda()
         out = network(img)
-        out = pred_2_number(out)
-        # 这里需要再做一点处理
+        out = pred_2_number(out, cuda)
         single_out = list()
         single_gt = list()
         for i in segments:
@@ -241,7 +293,6 @@ def text_collate(batch):
     # find size to be padded
     for sample in batch:
         h, w = int(max(h, sample['largest_size'][0])), int(max(w, sample['largest_size'][1]))
-        # seq_len = max(seq_len, len(sample['img_list']))
 
     color = (255, 255, 255)
     all_black = np.zeros((3, h, w))
@@ -278,6 +329,11 @@ def text_collate(batch):
     return batch
 
 
+def WithCuda(gpu):
+    os.environ['CUDA_VISIBLE_DEVICES'] = gpu
+    return gpu != ''
+
+
 if __name__ == '__main__':
     train_json = json.load(open('mchar_train.json'))
     train_path = ['mchar_train/' + x for x in train_json.keys()]
@@ -287,16 +343,22 @@ if __name__ == '__main__':
 
     print("#********************************************# Loading Raw Data Completed!")
 
-    train_dataset = TextDatasetWithBBox(train_json, train_path, isTrain=True)
-    val_dataset = TextDatasetWithBBox(val_json, val_path, isTrain=False)
+    # transform = None
+    transform = transforms.Compose(
+        [
+            Rotation(),
+            Translation(),
+            Normalization()
+        ]
+    )
+    train_dataset = TextDatasetWithBBox(train_json, train_path, transform=transform, isTrain=True)
+    val_dataset = TextDatasetWithBBox(val_json, val_path, transform=transform, isTrain=False)
 
-    gpu = ''
-    os.environ["CUDA_VISIBLE_DEVICES"] = gpu
-    cuda = True if gpu != '' else False
+    cuda = True if WithCuda('') else False
     num_workers = 2 if cuda else 1
     # cuda = False
     # num_workers = 1
-    batch_size = 20
+    batch_size = 10
 
     train_dl = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
                           collate_fn=text_collate)
@@ -357,4 +419,3 @@ if __name__ == '__main__':
         if cuda:
             gc.collect()
             torch.cuda.empty_cache()
-            
