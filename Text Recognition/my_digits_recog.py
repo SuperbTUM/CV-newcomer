@@ -24,6 +24,19 @@ test_epoch = 1
 output_dir = './'
 
 
+class Sharpen(object):
+    def __init__(self, p=0.5):
+        self.p = p
+    
+    def __call__(self, sample):
+        if np.random.uniform() < self.p:
+            return sample
+        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], np.float32)
+        for i in range(len(sample['img_list'])):
+            sample['img_list'][i] = cv2.filter2D(sample['img_list'][i], -1, kernel=kernel)
+        return sample
+
+    
 class Rotation(object):
     def __init__(self, angle=5, fill_value=0, p=0.5):
         self.angle = angle
@@ -351,6 +364,7 @@ if __name__ == '__main__':
     # transform = None
     transform = transforms.Compose(
         [
+            Sharpen(),
             Rotation(),
             Translation(),
             Normalization()
