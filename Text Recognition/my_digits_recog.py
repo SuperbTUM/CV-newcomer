@@ -61,14 +61,14 @@ class Translation(object):
         self.p = p
 
     def __call__(self, sample):
-
-        if np.random.uniform(0.0, 1.0) < self.p:
+        rand_num = np.random.uniform(0.0, 1.0)
+        if rand_num <= self.p:
             return sample
         for i in range(len(sample['img_list'])):
             h, w, _ = sample["img_list"][i].shape
             trans_range = (w / 10, h / 10)
-            tr_x = trans_range[0] * np.random.uniform() - trans_range[0] / 2
-            tr_y = trans_range[1] * np.random.uniform() - trans_range[1] / 2
+            tr_x = trans_range[0] * rand_num - trans_range[0] / 2
+            tr_y = trans_range[1] * rand_num - trans_range[1] / 2
             transform = np.float32([[1, 0, tr_x], [0, 1, tr_y]])
             sample["img_list"][i] = cv2.warpAffine(sample["img_list"][i], transform, (w, h),
                                                    borderValue=self.fill_value)
