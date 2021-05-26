@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 import torchvision.models as models
 from dropblock import DropBlock2D
+import multiprocessing
 import numpy as np
 from torch import optim
 from tqdm import tqdm
@@ -16,27 +17,31 @@ from torch.autograd import Variable
 import torchvision.transforms as transforms
 import math
 import gc
+import random
 
 epoch_count = 0
 acc_best = 0.
 test_init = None
 test_epoch = 1
 output_dir = './'
+rounds = 0
+cv2.setNumThreads(0)
+cv2.ocl.setUseOpenCL(False)
 
 
 class Sharpen(object):
     def __init__(self, p=0.5):
         self.p = p
-    
+
     def __call__(self, sample):
-        if np.random.uniform() < self.p:
+        if random.uniform(0., 1.) < self.p:
             return sample
         kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], np.float32)
         for i in range(len(sample['img_list'])):
             sample['img_list'][i] = cv2.filter2D(sample['img_list'][i], -1, kernel=kernel)
         return sample
 
-    
+
 class Rotation(object):
     def __init__(self, angle=5, fill_value=0, p=0.5):
         self.angle = angle
@@ -44,7 +49,7 @@ class Rotation(object):
         self.p = p
 
     def __call__(self, sample):  # 传进来是一个img_list
-        if np.random.uniform(0.0, 1.0) < self.p:
+        if random.uniform(0.0, 1.0) < self.p:
             return sample
         ang_rot = np.random.uniform(self.angle) - self.angle / 2
         for i in range(len(sample['img_list'])):
@@ -59,16 +64,17 @@ class Translation(object):
     def __init__(self, fill_value=0, p=0.5):
         self.fill_value = fill_value
         self.p = p
+        self.CONSTANT = 1e-3
 
     def __call__(self, sample):
-        rand_num = np.random.uniform(0.0, 1.0)
+        rand_num = random.uniform(0.0, 1.0)
         if rand_num <= self.p:
             return sample
         for i in range(len(sample['img_list'])):
             h, w, _ = sample["img_list"][i].shape
             trans_range = (w / 10, h / 10)
-            tr_x = trans_range[0] * rand_num - trans_range[0] / 2
-            tr_y = trans_range[1] * rand_num - trans_range[1] / 2
+            tr_x = trans_range[0] * rand_num - trans_range[0] / 2 + self.CONSTANT
+            tr_y = trans_range[1] * rand_num - trans_range[1] / 2 + self.CONSTANT
             transform = np.float32([[1, 0, tr_x], [0, 1, tr_y]])
             sample["img_list"][i] = cv2.warpAffine(sample["img_list"][i], transform, (w, h),
                                                    borderValue=self.fill_value)
@@ -255,7 +261,7 @@ def load_network(batch_size=20, base_lr=1e-3, step_size=1000, max_iter=10000, cu
     network = Resnet50Mod(batch_size=batch_size)
     if cuda:
       network = network.cuda()
-    optimizer = optim.Adam(network.parameters(), lr=base_lr, weight_decay=0.0001)
+    optimizer = optim.SGD(network.parameters(), lr=base_lr, weight_decay=0.0001)
     lr_scheduler = StepLR(optimizer, step_size=step_size, max_iter=max_iter)
     loss_function = LabelSmoothing(0.2)
     return network, optimizer, lr_scheduler, loss_function
@@ -264,8 +270,7 @@ def load_network(batch_size=20, base_lr=1e-3, step_size=1000, max_iter=10000, cu
 def test(network, dataset, cuda=True):
     count = 0
     tp = 0
-    num_workers = 2 if cuda else 1
-    val_dl = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+    val_dl = DataLoader(dataset, batch_size=batch_size, shuffle=False,
                         collate_fn=text_collate)
     iterator = tqdm(val_dl)
     for sample in iterator:
@@ -347,9 +352,10 @@ def text_collate(batch):
     return batch
 
 
-def WithCuda(gpu):
-    os.environ['CUDA_VISIBLE_DEVICES'] = gpu
-    return gpu != ''
+def WithCuda():
+    gpu_num = torch.cuda.device_count()
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0' if gpu_num > 0 else ''
+    return gpu_num > 0
 
 
 if __name__ == '__main__':
@@ -373,8 +379,8 @@ if __name__ == '__main__':
     train_dataset = TextDatasetWithBBox(train_json, train_path, transform=transform, isTrain=True)
     val_dataset = TextDatasetWithBBox(val_json, val_path, transform=transform, isTrain=False)
 
-    cuda = True if WithCuda('') else False
-    num_workers = 2 if cuda else 1
+    cuda = True if WithCuda() else False
+    num_workers = multiprocessing.cpu_count() - 1
     # cuda = False
     # num_workers = 1
     batch_size = 10
@@ -389,20 +395,27 @@ if __name__ == '__main__':
             print("Test phase")
             train_dataset.set_mode("test")
             network = network.eval()
-            acc = test(network, val_dl, cuda)
+            acc = test(network, val_dataset, cuda)
             network = network.train()
             train_dataset.set_mode("train")
             if acc > acc_best:
+                rounds = 0
                 if output_dir is not None:
                     torch.save(network.state_dict(), os.path.join(output_dir + "_best"))
                 acc_best = acc
+            else:
+                rounds += 1
+                if rounds > 4:
+                    print('Test Accuracy does not improve in the past five epochs!\n')
+                    print("acc: {}\tacc_best: {};".format(acc, acc_best))
+                    break
             print("acc: {}\tacc_best: {};".format(acc, acc_best))
 
         loss_mean = list()
         train_dl = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
-                          collate_fn=text_collate)
+                              collate_fn=text_collate)
         iterator = tqdm(train_dl)
-        for sample in iterator:  # 输了一个batch进去
+        for sample in iterator:
             img_list = sample['img_list']
             img_list = img_list.view(img_list.shape[0] * img_list.shape[1], img_list.shape[2], img_list.shape[3],
                                      img_list.shape[4])
