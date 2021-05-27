@@ -18,6 +18,12 @@ import torchvision.transforms as transforms
 import math
 import gc
 import random
+from prefetch_generator import BackgroundGenerator
+
+# Override Dataloader
+class DataLoaderX(DataLoader):
+    def __iter__(self):
+        return BackgroundGenerator(super().__iter__())
 
 epoch_count = 0
 acc_best = 0.
@@ -51,8 +57,8 @@ class Rotation(object):
     def __call__(self, sample):  # 传进来是一个img_list
         if random.uniform(0.0, 1.0) < self.p:
             return sample
-        ang_rot = np.random.uniform(self.angle) - self.angle / 2
         for i in range(len(sample['img_list'])):
+            ang_rot = random.uniform(self.angle) - self.angle / 2
             h, w, _ = sample["img_list"][i].shape
             transform = cv2.getRotationMatrix2D((w / 2, h / 2), ang_rot, 1)
             sample["img_list"][i] = cv2.warpAffine(sample["img_list"][i], transform, (w, h),
@@ -270,7 +276,7 @@ def load_network(batch_size=20, base_lr=1e-3, step_size=1000, max_iter=10000, cu
 def test(network, dataset, cuda=True):
     count = 0
     tp = 0
-    val_dl = DataLoader(dataset, batch_size=batch_size, shuffle=False,
+    val_dl = DataLoaderX(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
                         collate_fn=text_collate)
     iterator = tqdm(val_dl)
     for sample in iterator:
@@ -412,7 +418,7 @@ if __name__ == '__main__':
             print("acc: {}\tacc_best: {};".format(acc, acc_best))
 
         loss_mean = list()
-        train_dl = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
+        train_dl = DataLoaderX(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
                               collate_fn=text_collate)
         iterator = tqdm(train_dl)
         for sample in iterator:
