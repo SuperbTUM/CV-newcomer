@@ -139,7 +139,7 @@ class TextDatasetWithBBox(Dataset):
         for bb in bbox:
             bb_resize = self._Resize(bb)
             h, w = max(h, bb_resize[1]-bb_resize[0]), max(w, bb_resize[3]-bb_resize[2])
-            resized_img = img[bb_resize[0]:bb_resize[1], bb_resize[2]:bb_resize[3]]
+            resized_img = img[bb_resize[0]:bb_resize[1], bb_resize[2]:bb_resize[3]].astype(np.float32)
             img_list.append(resized_img)
         # for recognition of each number
         sample = {'img_list': img_list, 'label': gt_label, 'largest_size': (h, w),
