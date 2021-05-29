@@ -73,14 +73,13 @@ class Translation(object):
         self.CONSTANT = 1e-3
 
     def __call__(self, sample):
-        rand_num = random.uniform(0.0, 1.0)
-        if rand_num <= self.p:
+        if random.uniform(0.0, 1.0) <= self.p:
             return sample
         for i in range(len(sample['img_list'])):
             h, w, _ = sample["img_list"][i].shape
             trans_range = (w / 10, h / 10)
-            tr_x = trans_range[0] * rand_num - trans_range[0] / 2 + self.CONSTANT
-            tr_y = trans_range[1] * rand_num - trans_range[1] / 2 + self.CONSTANT
+            tr_x = trans_range[0] * random.uniform(0.0, 1.0) - trans_range[0] / 2 + self.CONSTANT
+            tr_y = trans_range[1] * random.uniform(0.0, 1.0) - trans_range[1] / 2 + self.CONSTANT
             transform = np.float32([[1, 0, tr_x], [0, 1, tr_y]])
             sample["img_list"][i] = cv2.warpAffine(sample["img_list"][i], transform, (w, h),
                                                    borderValue=self.fill_value)
@@ -138,17 +137,21 @@ class TextDatasetWithBBox(Dataset):
 
     def __getitem__(self, idx):
         gt_label = self.data_label[idx]  # [1,9]
+        label = list()
         bbox = self.data_bbox[idx]  # [(loc1), (loc9)] needs recognition
         img = cv2.imread(self.data_path[idx])  # select idx-th image
         img_list = list()
         h, w = 0, 0
-        for bb in bbox:
+        for i, bb in enumerate(bbox):
             bb_resize = self._Resize(bb)
-            h, w = max(h, bb_resize[1]-bb_resize[0]), max(w, bb_resize[3]-bb_resize[2])
             resized_img = img[bb_resize[0]:bb_resize[1], bb_resize[2]:bb_resize[3]].astype(np.float32)
+            if resized_img.size == 0:
+                continue
+            h, w = max(h, bb_resize[1] - bb_resize[0]), max(w, bb_resize[3] - bb_resize[2])
             img_list.append(resized_img)
+            label.append(gt_label[i])
         # for recognition of each number
-        sample = {'img_list': img_list, 'label': gt_label, 'largest_size': (h, w),
+        sample = {'img_list': img_list, 'label': label, 'largest_size': (h, w),
                   'is_end': [0] * (len(img_list) - 1) + [1]}
         if self.transform:
             sample = self.transform(sample)
@@ -174,6 +177,32 @@ class Mish(nn.Module):
     def forward(self, x):
         return x * torch.tanh(F.softplus(x))
 
+
+# mata-ACON
+class meta_ACON(object):
+    def __init__(self, p1=1, p2=0, mode=None):
+        self.p1 = p1
+        self.p2 = p2
+        self.mode = mode
+
+    def _cal_beta(self, input):  # (BS, C, H, W)
+        if self.mode == 'pixel_wise':
+            beta = nn.Sigmoid()(input)
+        elif self.mode == 'channel_wise':
+            beta = nn.Sigmoid()(torch.sum(input, dim=0))
+        elif self.mode == 'layer_wise':
+            beta = nn.Sigmoid()(torch.sum(input, dim=(0, 1)))
+        elif self.mode is None:
+            beta = 1.
+        else:
+            return NotImplementedError
+        return beta
+
+    def forward(self, input):
+        output = (self.p1 - self.p2) * input * nn.Sigmoid()(
+            self._cal_beta(input) * (self.p1 - self.p2) * input) + self.p2 * input
+        return output
+    
 
 class Resnet50Mod(nn.Module):
     def __init__(self, batch_size=20, num_imgs=6):
