@@ -6,6 +6,8 @@ Architecture: PyTorch and OpenCV
 
 Data Augmentation: image sharpening, rotation, translation, normalization
 
+Activation Function: Mish/meta-ACON (CVPR 2021)
+
 Neural Network: pretrained ResNet-50 with adaptive average pooling, dropblock/dropout
 
 Optimizer: Adam with learning rate scheduler
