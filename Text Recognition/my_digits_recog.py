@@ -151,8 +151,9 @@ class TextDatasetWithBBox(Dataset):
             img_list.append(resized_img)
             label.append(gt_label[i])
         # for recognition of each number
+        is_end = [0] * (len(img_list) - 1) + [1] if len(img_list) else []
         sample = {'img_list': img_list, 'label': label, 'largest_size': (h, w),
-                  'is_end': [0] * (len(img_list) - 1) + [1]}
+                  'is_end': is_end}
         if self.transform:
             sample = self.transform(sample)
         return sample
