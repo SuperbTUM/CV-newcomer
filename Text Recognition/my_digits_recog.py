@@ -382,7 +382,7 @@ def text_collate(batch):
 
     imgs = torch.stack(imgs)  # each tensor with equal size
     labels = torch.Tensor(labels).int()
-    isEnd = torch.Tensor(isEnd)
+    isEnd = torch.Tensor(isEnd).int()
     batch = {"img_list": imgs, "label": labels, 'is_end': isEnd}
     return batch
 
