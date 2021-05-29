@@ -179,7 +179,7 @@ class Mish(nn.Module):
 
 
 # mata-ACON
-class meta_ACON(object):
+class meta_ACON(nn.Module):
     def __init__(self, p1=1, p2=0, mode=None):
         self.p1 = p1
         self.p2 = p2
