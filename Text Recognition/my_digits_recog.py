@@ -18,12 +18,7 @@ import torchvision.transforms as transforms
 import math
 import gc
 import random
-from prefetch_generator import BackgroundGenerator
-
-# Override Dataloader
-class DataLoaderX(DataLoader):
-    def __iter__(self):
-        return BackgroundGenerator(super().__iter__())
+import functools
 
 epoch_count = 0
 acc_best = 0.
@@ -49,30 +44,30 @@ class Sharpen(object):
 
 
 class Rotation(object):
-    def __init__(self, angle=5, fill_value=0, p=0.5):
+    def __init__(self, angle=5, p=0.5):
         self.angle = angle
-        self.fill_value = fill_value
         self.p = p
 
-    def __call__(self, sample):  # 传进来是一个img_list
+    def __call__(self, sample):
         if random.uniform(0.0, 1.0) < self.p:
             return sample
+        ang_rot = np.random.uniform(self.angle) - self.angle / 2
         for i in range(len(sample['img_list'])):
-            ang_rot = random.uniform(self.angle) - self.angle / 2
             h, w, _ = sample["img_list"][i].shape
             transform = cv2.getRotationMatrix2D((w / 2, h / 2), ang_rot, 1)
+            borderValue = np.mean(sample["img_list"][i][0], axis=0).astype(np.float64)
             sample["img_list"][i] = cv2.warpAffine(sample["img_list"][i], transform, (w, h),
-                                                   borderValue=self.fill_value)
+                                                   borderValue=borderValue)
         return sample
 
 
 class Translation(object):
-    def __init__(self, fill_value=0, p=0.5):
-        self.fill_value = fill_value
+    def __init__(self, p=0.5):
         self.p = p
         self.CONSTANT = 1e-3
 
     def __call__(self, sample):
+
         if random.uniform(0.0, 1.0) <= self.p:
             return sample
         for i in range(len(sample['img_list'])):
@@ -81,8 +76,9 @@ class Translation(object):
             tr_x = trans_range[0] * random.uniform(0.0, 1.0) - trans_range[0] / 2 + self.CONSTANT
             tr_y = trans_range[1] * random.uniform(0.0, 1.0) - trans_range[1] / 2 + self.CONSTANT
             transform = np.float32([[1, 0, tr_x], [0, 1, tr_y]])
+            borderValue = np.mean(sample["img_list"][i][0], axis=0).astype(np.float64)
             sample["img_list"][i] = cv2.warpAffine(sample["img_list"][i], transform, (w, h),
-                                                   borderValue=self.fill_value)
+                                                   borderValue=borderValue)
         return sample
 
 
@@ -135,6 +131,23 @@ class TextDatasetWithBBox(Dataset):
     def _Resize(bbox):  # (left=x, top=y, height=h, width=w)
         return math.floor(bbox[1]), math.ceil(bbox[1] + bbox[2]), math.floor(bbox[0]), math.ceil(bbox[0] + bbox[3])
 
+    @staticmethod
+    def _Rotate(image, top, left):  # return rotated image list
+        h, w, _ = image.shape
+        top2 = top[:-1] + [0]
+        left2 = left[:-1] + [0]
+        delta_y = tuple(map(lambda x, y: x - y, zip(top, top2)))
+        delta_x = tuple(map(lambda x, y: x - y, zip(left, left2)))
+        k = np.mean(list(map(lambda x, y: x / y, zip(delta_y, delta_x))))
+        angle = math.atan(k)
+        angle = np.degrees(angle)
+        transforms = cv2.getRotationMatrix2D((w / 2, h / 2), -angle, 1)
+        borderValue = np.mean(image[0], axis=0)
+        for i in range(len(image)):
+            image[i] = cv2.warpAffine(image[i], transforms, (w, h),
+                              borderValue=borderValue)
+        return image
+
     def __getitem__(self, idx):
         gt_label = self.data_label[idx]  # [1,9]
         label = list()
@@ -144,9 +157,9 @@ class TextDatasetWithBBox(Dataset):
         h, w = 0, 0
         for i, bb in enumerate(bbox):
             bb_resize = self._Resize(bb)
-            resized_img = img[bb_resize[0]:bb_resize[1], bb_resize[2]:bb_resize[3]].astype(np.float32)
-            if resized_img.size == 0:
+            if functools.reduce(lambda x, y: x * y, bb_resize) < 0:
                 continue
+            resized_img = img[bb_resize[0]:bb_resize[1], bb_resize[2]:bb_resize[3]].astype(np.float32)
             h, w = max(h, bb_resize[1] - bb_resize[0]), max(w, bb_resize[3] - bb_resize[2])
             img_list.append(resized_img)
             label.append(gt_label[i])
@@ -204,7 +217,7 @@ class meta_ACON(nn.Module):
         output = (self.p1 - self.p2) * input * nn.Sigmoid()(
             self._cal_beta(input) * (self.p1 - self.p2) * input) + self.p2 * input
         return output
-    
+
 
 class Resnet50Mod(nn.Module):
     def __init__(self, batch_size=20, num_imgs=6):
@@ -212,15 +225,16 @@ class Resnet50Mod(nn.Module):
         self.batch_size = batch_size
         self.num_imgs = num_imgs
         self.origin_net = models.resnet50(pretrained=True)
-        self.origin_net.relu = Mish()
+        # self.origin_net.relu = meta_ACON(mode='layer_wise')  # --option1
+        self.origin_net.relu = Mish()  # --option2
         # the output dims of ave_pool is 1 * 1, according to the paper
         self.origin_net.avgpool = nn.AdaptiveAvgPool2d(1)
         self.cnn = nn.Sequential(*list(self.origin_net.children())[:-1])  # without fully connected layer but with
         # ave pooling layer
         # make sure the input dim would be ...*2048
         self.hidden_layer = nn.Linear(2048, 128)
-        self.dropout = nn.Dropout(0.1)
-        # self.dropout = DropBlock2D(block_size=3, drop_prob=0.2)
+        # self.dropout = nn.Dropout(0.1)
+        self.dropout = DropBlock2D(block_size=3, drop_prob=0.2)
         # make sure the output dim would be ...*11
         self.output = nn.Linear(128, 11)  # 11 or 10, 1 * 11
         # self.softmax = nn.Softmax(dim=1)
@@ -297,7 +311,7 @@ class StepLR(object):
 def load_network(batch_size=20, base_lr=1e-3, step_size=1000, max_iter=10000, cuda=True):
     network = Resnet50Mod(batch_size=batch_size)
     if cuda:
-      network = network.cuda()
+        network = network.cuda()
     optimizer = optim.SGD(network.parameters(), lr=base_lr, weight_decay=0.0001)
     lr_scheduler = StepLR(optimizer, step_size=step_size, max_iter=max_iter)
     loss_function = LabelSmoothing(0.2)
@@ -307,7 +321,7 @@ def load_network(batch_size=20, base_lr=1e-3, step_size=1000, max_iter=10000, cu
 def test(network, dataset, cuda=True):
     count = 0
     tp = 0
-    val_dl = DataLoaderX(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+    val_dl = DataLoader(dataset, batch_size=batch_size, shuffle=False,
                         collate_fn=text_collate)
     iterator = tqdm(val_dl)
     for sample in iterator:
@@ -355,7 +369,7 @@ def text_collate(batch):
         h, w = int(max(h, sample['largest_size'][0])), int(max(w, sample['largest_size'][1]))
 
     color = (255, 255, 255)
-    all_black = np.zeros((3, h, w))
+    all_white = np.zeros((3, h, w))
 
     for sample in batch:
         img = list()
@@ -374,7 +388,7 @@ def text_collate(batch):
             labels.append(sample['label'] + [10] * remain)
             isEnd.append(sample['is_end'] + [-1] * remain)
             while remain:
-                img.append(all_black)
+                img.append(all_white)
                 remain -= 1
         else:
             labels.append(sample['label'])
@@ -384,7 +398,7 @@ def text_collate(batch):
 
     imgs = torch.stack(imgs)  # each tensor with equal size
     labels = torch.Tensor(labels).int()
-    isEnd = torch.Tensor(isEnd).int()
+    isEnd = torch.Tensor(isEnd)
     batch = {"img_list": imgs, "label": labels, 'is_end': isEnd}
     return batch
 
@@ -449,7 +463,7 @@ if __name__ == '__main__':
             print("acc: {}\tacc_best: {};".format(acc, acc_best))
 
         loss_mean = list()
-        train_dl = DataLoaderX(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
+        train_dl = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
                               collate_fn=text_collate)
         iterator = tqdm(train_dl)
         for sample in iterator:
