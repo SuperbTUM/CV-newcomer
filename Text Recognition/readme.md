@@ -2,7 +2,7 @@ Archive of aliyun coding competition -- newcomer level.
 
 URL: https://tianchi.aliyun.com/competition/entrance/531795/information
 
-Architecture: PyTorch and OpenCV
+Architecture: PyTorch (Dataloader is overrided to enhance multiprocessing performance) and OpenCV
 
 Data Augmentation: image sharpening, rotation, translation, normalization
 
