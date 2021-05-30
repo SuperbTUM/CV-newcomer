@@ -88,13 +88,13 @@ class Normalization(object):
         self.std = std
 
     def __call__(self, sample):
-        norm_func = transforms.Normalize(self.mean, self.std)
+        # norm_func = transforms.Normalize(self.mean, self.std)
         for i in range(len(sample['img_list'])):
-            # for j in range(3):  # for colored image
-            #     sample['img_list'][i][:,:,j] = np.array(list(map(lambda x: (x-self.mean[0])/self.std[0],
-            #     sample['img_list'][i][:,:,j])))
-            sample['img_list'][i] = norm_func(torch.from_numpy(sample['img_list'][i].transpose(2, 0, 1)).float())
-            sample['img_list'][i] = sample['img_list'][i].numpy().transpose(1, 2, 0)
+            for j in range(3):  # for colored image
+                sample['img_list'][i][:, :, j] = np.array(list(map(lambda x: (x - self.mean[0]) / self.std[0],
+                                                                   sample['img_list'][i][:, :, j])))
+            # sample['img_list'][i] = norm_func(torch.from_numpy(sample['img_list'][i].transpose(2, 0, 1)).float())
+            # sample['img_list'][i] = sample['img_list'][i].numpy().transpose(1, 2, 0)
         return sample
 
 
@@ -107,9 +107,11 @@ class TextDatasetWithBBox(Dataset):
         for x in data_json.keys():
             data = data_json[x]
             self.data_label.append(data['label'])
-            single_image_bbox = list()
+            # single_image_bbox = list()
+            single_image_bbox = np.zeros((len(data['label']), 4))
             for i in range(len(data['label'])):
-                single_image_bbox.append((data['left'][i], data['top'][i], data['height'][i], data['width'][i]))
+                # single_image_bbox.append((data['left'][i], data['top'][i], data['height'][i], data['width'][i]))
+                single_image_bbox[i] = (data['left'][i], data['top'][i], data['height'][i], data['width'][i])
             self.data_bbox.append(single_image_bbox)
         if isTrain:
             self.data_bbox = self.data_bbox[:train_size]
@@ -133,19 +135,21 @@ class TextDatasetWithBBox(Dataset):
 
     @staticmethod
     def _Rotate(image, top, left):  # return rotated image list
-        h, w, _ = image.shape
-        top2 = top[:-1] + [0]
-        left2 = left[:-1] + [0]
-        delta_y = tuple(map(lambda x, y: x - y, zip(top, top2)))
-        delta_x = tuple(map(lambda x, y: x - y, zip(left, left2)))
-        k = np.mean(list(map(lambda x, y: x / y, zip(delta_y, delta_x))))
+        top2 = top[1:] + [0]
+        left2 = left[1:] + [0]
+        delta_y = tuple(map(lambda x: x[0] - x[1], zip(top, top2)))
+        delta_x = tuple(map(lambda x: x[0] - x[1], zip(left, left2)))
+        if 0 in delta_y or 0 in delta_x:
+            return image
+        k = np.mean(list(map(lambda x: x[0] / x[1], zip(delta_y, delta_x))))
         angle = math.atan(k)
         angle = np.degrees(angle)
-        transforms = cv2.getRotationMatrix2D((w / 2, h / 2), -angle, 1)
-        borderValue = np.mean(image[0], axis=0)
         for i in range(len(image)):
+            h, w, _ = image[i].shape
+            borderValue = np.mean(image[i][0], axis=0).astype(np.float64)
+            transforms = cv2.getRotationMatrix2D((w / 2, h / 2), -angle, 1)
             image[i] = cv2.warpAffine(image[i], transforms, (w, h),
-                              borderValue=borderValue)
+                                      borderValue=borderValue)
         return image
 
     def __getitem__(self, idx):
@@ -163,6 +167,9 @@ class TextDatasetWithBBox(Dataset):
             h, w = max(h, bb_resize[1] - bb_resize[0]), max(w, bb_resize[3] - bb_resize[2])
             img_list.append(resized_img)
             label.append(gt_label[i])
+
+        if len(img_list) > 1:
+            self._Rotate(img_list, bbox[:, 1], bbox[:, 0])
         # for recognition of each number
         is_end = [0] * (len(img_list) - 1) + [1] if len(img_list) else []
         sample = {'img_list': img_list, 'label': label, 'largest_size': (h, w),
@@ -173,15 +180,14 @@ class TextDatasetWithBBox(Dataset):
 
 
 def pred_2_number(preds, cuda=True):
-    softmax = nn.Softmax(dim=1)
-    preds = softmax(preds)
+    preds = nn.Softmax(dim=1)(preds)
     res = list()
     for i in range(len(preds)):
         if cuda:
-            res.append(np.argmax(preds[i].cpu().detach().numpy()))
+            res.append(preds[i].argmax().cpu())
         else:
-            res.append(np.argmax(preds[i].detach().numpy()))
-    return torch.Tensor(res)
+            res.append(preds[i].argmax())
+    return torch.Tensor(res).int()
 
 
 class Mish(nn.Module):
@@ -210,7 +216,7 @@ class meta_ACON(nn.Module):
         elif self.mode is None:
             beta = 1.
         else:
-            return NotImplementedError
+            return NotImplementedError('Invalid mode.')
         return beta
 
     def forward(self, input):
@@ -220,47 +226,27 @@ class meta_ACON(nn.Module):
 
 
 class Resnet50Mod(nn.Module):
-    def __init__(self, batch_size=20, num_imgs=6):
+    def __init__(self):
         super(Resnet50Mod, self).__init__()
-        self.batch_size = batch_size
-        self.num_imgs = num_imgs
-        self.origin_net = models.resnet50(pretrained=True)
-        # self.origin_net.relu = meta_ACON(mode='layer_wise')  # --option1
-        self.origin_net.relu = Mish()  # --option2
-        # the output dims of ave_pool is 1 * 1, according to the paper
-        self.origin_net.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.cnn = nn.Sequential(*list(self.origin_net.children())[:-1])  # without fully connected layer but with
-        # ave pooling layer
-        # make sure the input dim would be ...*2048
+        self.cnn = nn.Sequential(*list(origin_net.children())[:-1])
         self.hidden_layer = nn.Linear(2048, 128)
-        # self.dropout = nn.Dropout(0.1)
         self.dropout = DropBlock2D(block_size=3, drop_prob=0.2)
-        # make sure the output dim would be ...*11
         self.output = nn.Linear(128, 11)  # 11 or 10, 1 * 11
-        # self.softmax = nn.Softmax(dim=1)
 
     def forward(self, img):  # img: bs, c, h, w
         img = self.cnn(img).view(img.size(0), -1)
-        # make sure the input is 2 dims
         assert img.size(1) == 2048
         img = self.hidden_layer(img)
-        # if use DropBlock2D, then input would be 4 dims
-        # img = torch.reshape(img, [bs, img.size(1), 1, 1])
-        img = img.view(self.batch_size * self.num_imgs, img.size(1), 1, 1)
-        img = self.dropout(img)
-        # still make sure the input is 2 dims
-        img = img.view(img.size(0), -1)
-        output = self.output(img)
-        return output
-        # preds = self.softmax(output)  # (bs, klass)
-        # return self.pred_2_number(preds)
+        img = self.dropout(img.view(-1, img.size(1), 1, 1))
+        return self.output(img.view(img.size(0), -1))
 
     @staticmethod
     def pred_2_number(preds):
+        preds = nn.Softmax(dim=1)(preds)
         res = list()
         for i in range(len(preds)):
-            res.append(np.argmax(preds[i].detach().numpy()))
-        return torch.Tensor(res)
+            res.append(preds[i].argmax())
+        return torch.Tensor(res).int()
 
     # def Mish(self, x):
     #     return x * torch.tanh(F.softplus(x))
@@ -308,12 +294,30 @@ class StepLR(object):
             param_group['lr'] = self.base_lrs[ids] * 0.8 ** (self.last_iter // self.step_size)
 
 
-def load_network(batch_size=20, base_lr=1e-3, step_size=1000, max_iter=10000, cuda=True):
-    network = Resnet50Mod(batch_size=batch_size)
+class CosineLR(optim.lr_scheduler.CosineAnnealingLR):
+    def __init__(self, optimizer, T_max, eta_min=0, last_epoch=-1, verbose=False):
+        super(CosineLR, self).__init__(optimizer, T_max, eta_min, last_epoch, verbose)
+        self.last_iter = -1
+
+    def my_step(self):
+        self.last_iter += 1
+        super().step()
+
+    def get_lr(self):
+        super().get_lr()
+
+
+def load_network(base_lr=1e-3, cuda=True):
+    network = Resnet50Mod()
     if cuda:
         network = network.cuda()
-    optimizer = optim.SGD(network.parameters(), lr=base_lr, weight_decay=0.0001)
-    lr_scheduler = StepLR(optimizer, step_size=step_size, max_iter=max_iter)
+    # optimizer = optim.Adam(network.parameters(), lr=base_lr, weight_decay=0.0001)
+    # lr_scheduler = StepLR(optimizer, step_size=step_size, max_iter=max_iter)
+
+    optimizer = optim.SGD(network.parameters(), lr=base_lr, momentum=0.9, weight_decay=0.001)
+    # lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(my_optimizer, len(train_dataset)//batch_size)
+    lr_scheduler = CosineLR(optimizer, len(train_dataset) // batch_size)
+
     loss_function = LabelSmoothing(0.2)
     return network, optimizer, lr_scheduler, loss_function
 
@@ -418,6 +422,10 @@ if __name__ == '__main__':
 
     print("#********************************************# Loading Raw Data Completed!")
 
+    origin_net = models.resnet50(pretrained=True)
+    origin_net.relu = meta_ACON(mode='layer_wise')
+    origin_net.avgpool = nn.AdaptiveAvgPool2d(1)
+
     # transform = None
     transform = transforms.Compose(
         [
@@ -431,14 +439,12 @@ if __name__ == '__main__':
     val_dataset = TextDatasetWithBBox(val_json, val_path, transform=transform, isTrain=False)
 
     cuda = True if WithCuda() else False
-    num_workers = multiprocessing.cpu_count() - 1
-    # cuda = False
-    # num_workers = 1
+    num_workers = multiprocessing.cpu_count()
     batch_size = 10
 
     print("#********************************************# Building Dataset Completed!")
 
-    network, optimizer, lr_scheduler, loss_function = load_network(batch_size=batch_size, cuda=cuda)
+    network, optimizer, lr_scheduler, loss_function = load_network(cuda=cuda)
     while True:
         print('#********************************************# Activating Training Process!')
         if (test_epoch is not None and epoch_count != 0 and epoch_count % test_epoch == 0) or (
@@ -452,7 +458,7 @@ if __name__ == '__main__':
             if acc > acc_best:
                 rounds = 0
                 if output_dir is not None:
-                    torch.save(network.state_dict(), os.path.join(output_dir + "_best"))
+                    torch.save(network.state_dict(), os.path.join(output_dir + "resnet50_best"))
                 acc_best = acc
             else:
                 rounds += 1
@@ -474,10 +480,8 @@ if __name__ == '__main__':
                 network = network.cuda()
                 img_list = img_list.cuda()
                 sample['label'] = sample['label'].cuda()
-            # label_list = sample['label'].view(sample['label'].shape[0] * sample['label'].shape[1], )
             optimizer.zero_grad()
             pred = network(img_list)
-            # pred = pred_2_number(pred)
             loss = loss_function(pred, Variable(sample['label']).view(-1))
             # loss_function = nn.CrossEntropyLoss()
             # loss = loss_function(pred, Variable(sample['label']).view(-1).long())
@@ -486,16 +490,17 @@ if __name__ == '__main__':
             loss_mean.append(loss.item())
             status = "epoch: {}; iter: {}; lr: {}; loss_mean: {}; loss: {}".format(epoch_count,
                                                                                    lr_scheduler.last_iter,
-                                                                                   lr_scheduler.get_lr(),
+                                                                                   lr_scheduler.get_lr()[0],
                                                                                    np.mean(loss_mean), loss.item())
             iterator.set_description(status)
             optimizer.step()
-            lr_scheduler.step()
+            lr_scheduler.my_step()
         if output_dir is not None:
-            torch.save(network.state_dict(), os.path.join(output_dir + "_last"))
+            torch.save(network.state_dict(), os.path.join(output_dir + "resnet50_last"))
         if epoch_count > 20:
             break
         epoch_count += 1
+        lr_scheduler = CosineLR(optimizer, len(train_dl))
         if cuda:
             gc.collect()
             torch.cuda.empty_cache()
