@@ -19,6 +19,7 @@ import math
 import gc
 import random
 import functools
+from the_network import resnet50
 
 epoch_count = 0
 acc_best = 0.
@@ -198,40 +199,40 @@ class Mish(nn.Module):
         return x * torch.tanh(F.softplus(x))
 
 
-# mata-ACON
-class meta_ACON(nn.Module):
-    def __init__(self, p1=1, p2=0, mode=None):
-        super().__init__()
-        self.p1 = p1
-        self.p2 = p2
-        self.mode = mode
-
-    def _cal_beta(self, input):  # (BS, C, H, W)
-        if self.mode == 'pixel_wise':
-            beta = nn.Sigmoid()(input)
-        elif self.mode == 'channel_wise':
-            beta = nn.Sigmoid()(torch.sum(input, dim=0))
-        elif self.mode == 'layer_wise':
-            beta = nn.Sigmoid()(torch.sum(input, dim=(0, 1)))
-        elif self.mode is None:
-            beta = 1.
-        else:
-            return NotImplementedError('Invalid mode.')
-        return beta
-
-    def forward(self, input):
-        output = (self.p1 - self.p2) * input * nn.Sigmoid()(
-            self._cal_beta(input) * (self.p1 - self.p2) * input) + self.p2 * input
-        return output
+# # mata-ACON
+# class meta_ACON(nn.Module):
+#     def __init__(self, p1=1, p2=0, mode=None):
+#         super().__init__()
+#         self.p1 = p1
+#         self.p2 = p2
+#         self.mode = mode
+#
+#     def _cal_beta(self, input):  # (BS, C, H, W)
+#         if self.mode == 'pixel_wise':
+#             beta = nn.Sigmoid()(input)
+#         elif self.mode == 'channel_wise':
+#             beta = nn.Sigmoid()(torch.sum(input, dim=0))
+#         elif self.mode == 'layer_wise':
+#             beta = nn.Sigmoid()(torch.sum(input, dim=(0, 1)))
+#         elif self.mode is None:
+#             beta = 1.
+#         else:
+#             return NotImplementedError('Invalid mode.')
+#         return beta
+#
+#     def forward(self, input):
+#         output = (self.p1 - self.p2) * input * nn.Sigmoid()(
+#             self._cal_beta(input) * (self.p1 - self.p2) * input) + self.p2 * input
+#         return output
 
 
 class Resnet50Mod(nn.Module):
-    def __init__(self):
+    def __init__(self, num_class=11):
         super(Resnet50Mod, self).__init__()
         self.cnn = nn.Sequential(*list(origin_net.children())[:-1])
         self.hidden_layer = nn.Linear(2048, 128)
         self.dropout = DropBlock2D(block_size=3, drop_prob=0.2)
-        self.output = nn.Linear(128, 11)  # 11 or 10, 1 * 11
+        self.output = nn.Linear(128, num_class)  # 11 or 10, 1 * 11
 
     def forward(self, img):  # img: bs, c, h, w
         img = self.cnn(img).view(img.size(0), -1)
@@ -303,8 +304,8 @@ class CosineLR(optim.lr_scheduler.CosineAnnealingLR):
         self.last_iter += 1
         super().step()
 
-    def get_lr(self):
-        super().get_lr()
+    # def get_lr(self):
+    #     super().get_lr()
 
 
 def load_network(base_lr=1e-3, cuda=True):
@@ -422,11 +423,10 @@ if __name__ == '__main__':
 
     print("#********************************************# Loading Raw Data Completed!")
 
-    origin_net = models.resnet50(pretrained=True)
-    origin_net.relu = meta_ACON(mode='layer_wise')
-    origin_net.avgpool = nn.AdaptiveAvgPool2d(1)
+    origin_net = resnet50(pretrained=True)
+    # origin_net.relu = meta_ACON(mode='layer_wise')
+    # origin_net.avgpool = nn.AdaptiveAvgPool2d(1)
 
-    # transform = None
     transform = transforms.Compose(
         [
             Sharpen(),
@@ -504,3 +504,4 @@ if __name__ == '__main__':
         if cuda:
             gc.collect()
             torch.cuda.empty_cache()
+
