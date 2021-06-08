@@ -6,10 +6,10 @@ Architecture: PyTorch (Dataloader is overrided to enhance multiprocessing perfor
 
 Data Augmentation: image sharpening, rotation, translation, normalization
 
-Activation Function: Mish/meta-ACON (CVPR 2021)
+Detection Network: YoloV4 (pending), GRU/BiLSTM (baseline)
 
-Neural Network: pretrained ResNet-50 with adaptive average pooling, dropblock/dropout
+Classification Network: pretrained ResNet-50 (Mish/Meta-ACON (CVPR 2021), LeakyRelu) with dropblock/dropout
 
-Optimizer: Adam with learning rate scheduler
+Optimizer: SGD with Cosine learning rate scheduler
 
 Loss Function: label smoothing loss
