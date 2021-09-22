@@ -1,0 +1,13 @@
+# Tips on using Darknet to train customized Yolo detection network in Linux-based system
+
+First of all, there is a great [link](https://colab.research.google.com/drive/19QjjAIIt8wRw8B_0vB3cJ-a6EIlqn-PQ?usp=sharing#scrollTo=eagpo_2ak8ml) about how to train your custom network in Colab. This memo will present some potential issues when you are using Darknet. 
+
+We will skip regular steps like `git clone` and modifications on `Makefile`, `data/coco.names`, and `cfg/yolov4.cfg`, and dive into some tricky problems. 
+
+First of all, make compilation to generate executable `darknet` file. Use `CFLAGS=-std=c99` to avoid error messages. There may be some other error with OpenCV on which look like referenced variables before definition. Just follow the error information and modify .c files in `src	` folder, then compile it to obj-style file with `gcc -c`. By the way, you need to have gcc at first.
+
+Next will be anchor re-definition. Codes in terminal will be `./darknet detector calc_anchors data/... -num_of_clusters -width -height -show`. In YoloV3, the default cluster number is 9, while in YoloV4, this value is reduced to 5.
+
+Then here comes the critical training process. After adding executable permission to `darknet`, we can do training work both with OpenCV and without OpenCV. But bear in mind that without OpenCV, it means you have to set both OpenCV=0 (Never mind, if you don't install OpenCV in your envrionment) and mosaic=0. Completely installing OpenCV is not an easy task, but luckily we have some [references](https://www.myfreax.com/how-to-install-opencv-on-centos-7/). Be aware that you need `cmake`. After installation, there may still be some errors in make process, usually it is because of lack of opencv.conf file directing the path of OpenCV (where the .iso file is). Clearly with OpenCV, the training process may be slower, since you have additional data augmentation process (mosaic). With every prerequisites settled down, execute `./darknet detector train -dont_show -map data/... cfg/yolov4.cfg weights/...` and wait patiently. When the average loss is small enough or network converges, you can stop training.
+
+Now you have trained weights file. To test the network, simply execute `darknet detect cfg/yolov4.cfg weights/... image` and you should get the results. You can also check the mAP value by typing `darknet detector map data/... cfg/yolov4.cfg weights/...`.
