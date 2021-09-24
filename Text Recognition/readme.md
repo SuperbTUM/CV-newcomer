@@ -6,7 +6,7 @@ Architecture: PyTorch (Dataloader is overrided to enhance multiprocessing perfor
 
 Data Augmentation: image sharpening, rotation, translation, normalization
 
-Detection Network: YoloV4 (pending), GRU/BiLSTM (baseline)
+Detection Network: YoloV4 (pending), GRU/BiLSTM (baseline), darknet (baseline, score: 0.792, ranking: top 5%)
 
 Classification Network: pretrained ResNet-50 (Mish/Meta-ACON (CVPR 2021), LeakyRelu) with dropblock/dropout
 
