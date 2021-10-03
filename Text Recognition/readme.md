@@ -2,7 +2,7 @@
 
 Archive of [Aliyun/DataWhale Computer Vision Competition](https://tianchi.aliyun.com/competition/entrance/531795/information?lang=en-us) --- The Street View House Numbers (SVHN, Google) Dataset Challenge.
 
-Architecture: PyTorch (Dataloader is overrided to enhance multiprocessing performance) and OpenCV
+Architecture: PyTorch (with cuda and cudnn, Dataloader is overrided with prefetch), OpenCV
 
 Data Augmentation: image sharpening, rotation, translation, normalization, blur (gaussian, average, median), superpixel, emboss, spatial augmentaion (HSV), convolutional augmentation (not good), elastic transformation (often happen in MNIST dataset), elementwise add, noise, dropout --- imgaug is able to handle all of them
 
