@@ -8,6 +8,6 @@ Data Augmentation: image sharpening, rotation, translation, normalization, blur 
 
 Backbone: GRU/BiLSTM (baseline, score: 0.643), darknet (first attempt, yolov4-tiny, anchor re-organized, mish activation, DIOU NMS, iterations for 10000 iterations, score: 0.833), pretrained ResNet-50 (Mish/Meta-ACON (CVPR 2021), LeakyRelu) with dropblock (may not helpful in FC layer)/dropout (second attempt, label smoothing, simple voting algorithm, score: 0.841, ranking: top 4%, single character recognition improved dramatically)
 
-Optimizer: SGD with Cosine learning rate scheduler
+Optimizer: SGD? (Performs bad?, Adam is better) with Cosine learning rate scheduler
 
 Loss Function: label smoothing loss
