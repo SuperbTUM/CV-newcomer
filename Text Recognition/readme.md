@@ -1,6 +1,6 @@
 ## Introduction
 
-Archive of [Aliyun/DataWhale Computer Vision Competition](https://tianchi.aliyun.com/competition/entrance/531795/information?lang=en-us) --- The Street View House Numbers (SVHN, Google) Dataset Challenge.
+Archive of [Ali TianChi/DataWhale Computer Vision Competition](https://tianchi.aliyun.com/competition/entrance/531795/information?lang=en-us) --- The Street View House Numbers (SVHN, Google) Dataset Challenge.
 
 Architecture: PyTorch (with cuda and cudnn, Dataloader is overrided with prefetch), OpenCV
 
