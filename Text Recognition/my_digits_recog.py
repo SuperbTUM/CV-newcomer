@@ -152,10 +152,10 @@ class TextDatasetWithBBox(Dataset):
 #
 # mata-ACON
 class meta_ACON(nn.Module):
-    def __init__(self, p1=1, p2=0, mode=None):
+    def __init__(self, channel=64, mode=None):
         super().__init__()
-        self.p1 = p1
-        self.p2 = p2
+        self.p1 = nn.Parameter(torch.randn(1, channel, 1, 1))
+        self.p2 = nn.Parameter(torch.randn(1, channel, 1, 1))
         self.mode = mode
 
     def _cal_beta(self, input):  # (BS, C, H, W)
@@ -276,21 +276,22 @@ def test(network, dataset, cuda=True):
     iterator = tqdm(val_dl)
     correct = 0
     for sample in iterator:
-        imgs = sample["imgs"]  # (bs, num_img, c, h, w)
-        img = Variable(imgs)
-        if cuda:
-            img = img.cuda()
-            sample["labels"] = sample['labels'].cuda()
-        tuple_out = network(img)
-        pred = pred_2_number(tuple_out)
-        temp = torch.stack([pred[0] == sample["labels"][:, 0],
-                            pred[1] == sample["labels"][:, 1],
-                            pred[2] == sample["labels"][:, 2],
-                            pred[3] == sample["labels"][:, 3],
-                            pred[4] == sample["labels"][:, 4]
-                            ], dim=1)
-        correct += torch.all(temp, dim=1).sum().item()
-        count += batch_size
+        with torch.no_grad():
+            imgs = sample["imgs"]  # (bs, num_img, c, h, w)
+            img = Variable(imgs)
+            if cuda:
+                img = img.cuda()
+                sample["labels"] = sample['labels'].cuda()
+            tuple_out = network(img)
+            pred = pred_2_number(tuple_out)
+            temp = torch.stack([pred[0] == sample["labels"][:, 0],
+                                pred[1] == sample["labels"][:, 1],
+                                pred[2] == sample["labels"][:, 2],
+                                pred[3] == sample["labels"][:, 3],
+                                pred[4] == sample["labels"][:, 4]
+                                ], dim=1)
+            correct += torch.all(temp, dim=1).sum().item()
+            count += batch_size
     status = "acc: {0:.4f}".format(correct / count)
     iterator.set_description(status)
 
